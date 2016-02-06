@@ -1,5 +1,6 @@
 package org.apache.cmueller.samples.oracle;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -14,20 +15,49 @@ public class StoredProcedureTransactionTest {
     @Before
     public void setUp() throws SQLException {
         DriverManager.registerDriver (new oracle.jdbc.OracleDriver());
-        con = DriverManager.getConnection("jdbc:oracle:thin:@192.168.178.28:1521:xe", "cmueller", "***");
+
+        con = DriverManager.getConnection("jdbc:oracle:thin:cmueller/password@//localhost:1521/orcl");
         con.setAutoCommit(false);
 
-        PreparedStatement statement = con.prepareStatement("CREATE OR REPLACE TABLE TEST (NAME VARCHAR2(100))");
-        statement.execute();
+        try(PreparedStatement statement = con.prepareStatement("CREATE TABLE TEST (NAME VARCHAR2(100))")) {
+            statement.execute();
+        } catch (SQLException sqle) {
+            if (955 == sqle.getErrorCode()) {
+                // Table aready exists
+            }else {
+                System.out.println(sqle);
+                throw sqle;
+            }
+        }
 
-        statement = con.prepareStatement(
-            "CREATE OR REPLACE PROCEDURE ADD_TEST_ENTRY (NAME IN VARCHAR2) AS " +
-            "BEGIN " +
-                "INSERT INTO TEST VALUES (ADD_TEST_ENTRY.NAME); " +
-            "END ADD_TEST_ENTRY;");
-        statement.execute();
+        try(PreparedStatement statement = con.prepareStatement("DELETE FROM TEST")) {
+            statement.execute();
+        }
+
+        try(PreparedStatement statement = con.prepareStatement(
+                "CREATE OR REPLACE PROCEDURE ADD_TEST_ENTRY (NAME IN VARCHAR2) AS " +
+                        "BEGIN " +
+                        "INSERT INTO TEST VALUES (ADD_TEST_ENTRY.NAME); " +
+                        "END ADD_TEST_ENTRY;")) {
+
+            statement.execute();
+        } catch (SQLException sqle) {
+            if (955 == sqle.getErrorCode()) {
+                // Stored procedure aready exists
+            } else {
+                System.out.println(sqle);
+                throw sqle;
+            }
+        }
 
         con.commit();
+    }
+
+    @After
+    public void tearDown() throws SQLException {
+        if (con != null) {
+            con.close();
+        }
     }
 
     @Test
@@ -51,13 +81,20 @@ public class StoredProcedureTransactionTest {
     }
 
     private void executeStoredProcedure() throws SQLException {
-        CallableStatement statement = con.prepareCall("{call ADD_TEST_ENTRY(?)}");
-        statement.setString(1, "CMUELLER");
-        statement.execute();
+        try (CallableStatement statement = con.prepareCall("{call ADD_TEST_ENTRY(?)}")) {
+            statement.setString(1, "CMUELLER");
+            statement.execute();
+        }
     }
 
     private int getTestTableRowCount() throws SQLException {
-        PreparedStatement statement = con.prepareStatement("SELECT COUNT(*) FROM TEST");
-        return statement.executeUpdate();
+        try (PreparedStatement statement = con.prepareStatement("SELECT COUNT(*) FROM TEST")) {
+            statement.executeUpdate();
+
+            try (ResultSet rs = statement.getResultSet()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
     }
 }
